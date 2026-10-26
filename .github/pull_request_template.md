@@ -6,7 +6,7 @@ Fixes #X...,(_repeat for multiple issues_)
 
 ---
 
-## Type of Change
+# Type of Change
 1. [ ] Bug fix (change which fixes an issue)
 2. [ ] New feature (change which adds functionality)
 3. [ ] Documentation update
@@ -14,7 +14,7 @@ Fixes #X...,(_repeat for multiple issues_)
 
 ---
 
-## Checklist
+# Checklist
 
 1. [ ] My code follows the style guidelines of this project
 2. [ ] I have performed a self-review of my own code
