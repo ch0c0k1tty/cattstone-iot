@@ -1,0 +1,36 @@
+name: Task
+description: Create a structured task or work item.
+title: "[TASK]: "
+labels:
+  - task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide the details below.
+
+  - type: input
+    id: task_name
+    attributes:
+      label: Task Summary
+      placeholder: Short summary of the task
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Detailed Description
+      placeholder: What needs to be done and why?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Verification
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate.
+          required: true
+        - label: I have attached this issue to the appropriate section of the project board.
+          required: true
