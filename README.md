@@ -1,5 +1,5 @@
 # Mitty
-Accesibility first IoT network
+Accessibility first IoT network
 ## Project Links
 ### GitHub
 - [Project Board](https://github.com/users/ch0c0k1tty/projects/1)
