@@ -4,8 +4,8 @@ Accessibility first IoT network
 ### GitHub
 - [Project Board](https://github.com/users/ch0c0k1tty/projects/1)
 ### Important Documents
-- [Functional Specifications](https://docs.google.com/document/d/1hRhzMk34AVrnLM9rXN4y00WUQHdEEoWXz_1VbcZZ7YQ/edit?usp=sharing) (In progress)
-- [Design Document](https://docs.google.com/document/d/1lzYyyDJ7No_QjC7fQJRYKRFx_E3lxT3QDqPlWhD_4Zs/edit?usp=sharing) (Not started)
+- [Functional Specifications](https://docs.google.com/document/d/1hRhzMk34AVrnLM9rXN4y00WUQHdEEoWXz_1VbcZZ7YQ/edit?usp=sharing)
+- [Design Document](https://docs.google.com/document/d/1lzYyyDJ7No_QjC7fQJRYKRFx_E3lxT3QDqPlWhD_4Zs/edit?usp=sharing) (In Progress)
 ### Notion Pages
 - [Home Page](https://app.notion.com/p/HomeBase-3ed0d6dc3a9780479cd5ee0eef1e064b?source=copy_link)
 - [Sprints](https://app.notion.com/p/3ee0d6dc3a9780f1b27ff5db0b809e99?v=3ee0d6dc3a9780018fa0000c80876301&source=copy_link)
