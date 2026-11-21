@@ -128,3 +128,36 @@
     @apply font-sans;
     }
 }
+
+/* Part and node illustrations */
+
+:root {
+  --s1: 4px;
+  --s3: 12px;
+  --s4: 16px;
+  --s7: 48px;
+
+  --render-row: calc(var(--s7) + var(--s1));
+}
+
+/* Default render: 64 × 64px */
+.render {
+  flex: none;
+  display: block;
+  width: calc(var(--s7) + var(--s4));
+  height: calc(var(--s7) + var(--s4));
+}
+
+/* Network hub and node renders: 52 × 52px */
+.network-item .render {
+  width: var(--render-row);
+  height: var(--render-row);
+}
+
+/* Part renders inside history strips: 52 × 52px */
+.strip-name .render {
+  width: var(--render-row);
+  height: var(--render-row);
+}
+
+.network-item:hover { background: var(--hover); }

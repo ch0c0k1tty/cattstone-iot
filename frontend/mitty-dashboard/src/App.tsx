@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
+import { Parts } from "@/pages/Parts";
+
 type Page = "dashboard" | "automations" | "parts";
 
 const pages = [
@@ -126,12 +128,7 @@ export default function App() {
           />
         )}
 
-        {page === "parts" && (
-          <Placeholder
-            title="Parts"
-            description="Manage connected hardware, sensors, and actuators."
-          />
-        )}
+        {page === "parts" && <Parts />}
       </main>
     </div>
   );
