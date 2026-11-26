@@ -1,0 +1,1666 @@
+openapi: 3.0.3
+info:
+  title: Mitty Hub API
+  version: 0.3.0-draft
+  description: |
+    Proposed local HTTP API for the Mitty hub, using the team's preferred terms.
+    The hub is the only route between user devices and buds (FR-5).
+    All automation logic runs on the hub.
+    There is no remote access and there are no repeaters. The API is local-network only.
+
+    Conventions:
+    - Readings can be unknown. Unknown readings use a null value, never zero.
+    - An actor's desired state is separate from its reported state.
+    - Accepted commands are not necessarily applied. Poll the command or use live updates.
+    - Limits and safe states apply to manual commands and actions alike.
+    - Live updates use the WebSocket described at GET /api/v1/live.
+    - Draft decisions are marked "Decision:" in descriptions.
+servers:
+  - url: https://mitty.local
+    description: Hub on the local network (TLS certificate trust is still to be decided)
+security:
+  - bearerAuth: []
+tags:
+  - name: System
+    description: Hub health and information
+  - name: Auth
+    description: Sessions, users, and local PIN
+  - name: Space
+    description: Snapshot of everything active
+  - name: Pairing
+    description: Short, authorized pairing window
+  - name: Buds
+    description: Linked devices that connect parts to the hub
+  - name: Parts
+    description: Sensors, inputs, actors, and generic parts
+  - name: Commands
+    description: Manual actor requests and results
+  - name: Builds
+    description: Assemblies of parts running actions
+  - name: Blueprints
+    description: Reusable designs
+  - name: Actions
+    description: Triggers, conditions, and steps
+  - name: Activity
+    description: Activity log, faults, and audit records
+  - name: Settings
+    description: Hub settings and data deletion
+  - name: Live
+    description: WebSocket live updates
+paths:
+  /health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Check that the hub process is running
+      security: []
+      responses:
+        "200":
+          description: Hub process is responding. No private data is returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [ok]}
+  /api/v1/system:
+    get:
+      tags: [System]
+      operationId: getSystemInfo
+      summary: Get hub version, clock status, and power status
+      responses:
+        "200":
+          description: System information
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SystemInfo"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/auth/sessions:
+    post:
+      tags: [Auth]
+      operationId: createSession
+      summary: Sign in
+      description: |
+        Sign in with a username and password, or with the hub's four-digit PIN if enabled (FR-7.2).
+        Repeated failures are rate-limited or locked out (SR-1.4).
+        Decision: the functional spec ties passwords to remote access (FR-7.1).
+        With no remote access, decide whether accounts, the PIN, or both are required.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - {$ref: "#/components/schemas/PasswordLogin"}
+                - {$ref: "#/components/schemas/PinLogin"}
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "429": {$ref: "#/components/responses/TooManyRequests"}
+  /api/v1/auth/sessions/current:
+    get:
+      tags: [Auth]
+      operationId: getCurrentSession
+      summary: Get the signed-in user and permissions
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    delete:
+      tags: [Auth]
+      operationId: deleteSession
+      summary: Sign out
+      responses:
+        "204": {description: Session ended}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/users:
+    get:
+      tags: [Auth]
+      operationId: listUsers
+      summary: List user accounts
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/UserList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      tags: [Auth]
+      operationId: createUser
+      summary: Create a user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewUser"}
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/User"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /api/v1/users/{userId}:
+    parameters:
+      - {$ref: "#/components/parameters/UserId"}
+    patch:
+      tags: [Auth]
+      operationId: updateUser
+      summary: Change a user's name, permissions, or password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/UserUpdate"}
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/User"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [Auth]
+      operationId: deleteUser
+      summary: Delete a user account
+      description: The hub must reject deleting the last administrator.
+      responses:
+        "204": {description: User deleted}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /api/v1/auth/local-pin:
+    put:
+      tags: [Auth]
+      operationId: setLocalPin
+      summary: Set or turn off the four-digit local PIN
+      description: Stored only as a salted hash (SR-2.2).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/LocalPinUpdate"}
+      responses:
+        "204": {description: PIN setting saved}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /api/v1/space:
+    get:
+      tags: [Space]
+      operationId: getSpace
+      summary: Get the dashboard snapshot
+      description: |
+        Returns current state: the hub, buds, parts, builds, and active faults.
+        Use GET /api/v1/parts/{partId}/readings for history.
+        Reconnecting live clients should reload this snapshot.
+      responses:
+        "200":
+          description: Current state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Space"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/pairing:
+    get:
+      tags: [Pairing]
+      operationId: getPairing
+      summary: Get pairing window status
+      responses:
+        "200":
+          description: Pairing status
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Pairing"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [Pairing]
+      operationId: startPairing
+      summary: Open a short pairing window
+      description: |
+        Equivalent to pressing the hub's physical button (CI-1.8).
+        Requests outside the window are ignored (SR-4.2).
+      responses:
+        "201":
+          description: Window opened
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Pairing"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [Pairing]
+      operationId: cancelPairing
+      summary: Close the pairing window
+      responses:
+        "204": {description: Window closed}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /api/v1/pairing/candidates/{candidateId}/approve:
+    parameters:
+      - name: candidateId
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [Pairing]
+      operationId: approvePairingCandidate
+      summary: Approve a discovered bud
+      description: Pairing must need user approval (CI-1.5).
+      responses:
+        "201":
+          description: Bud linked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Bud"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /api/v1/buds:
+    get:
+      tags: [Buds]
+      operationId: listBuds
+      summary: List linked buds
+      responses:
+        "200":
+          description: Buds
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BudList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/buds/{budId}:
+    parameters:
+      - {$ref: "#/components/parameters/BudId"}
+    get:
+      tags: [Buds]
+      operationId: getBud
+      summary: Get a bud
+      responses:
+        "200":
+          description: Bud
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Bud"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [Buds]
+      operationId: updateBud
+      summary: Rename a bud
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BudUpdate"}
+      responses:
+        "200":
+          description: Updated bud
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Bud"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [Buds]
+      operationId: unlinkBud
+      summary: Unlink a bud
+      description: |
+        Removes the link (FR-1.1). Its parts leave their builds and become unavailable.
+        Actors on that bud rely on their safe state.
+      responses:
+        "204": {description: Bud unlinked}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/part-types:
+    get:
+      tags: [Parts]
+      operationId: listPartTypes
+      summary: List the library of standard part interfaces
+      description: Includes core functions, optional functions, and properties (FR-10).
+      responses:
+        "200":
+          description: Part types
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PartTypeList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/parts:
+    get:
+      tags: [Parts]
+      operationId: listParts
+      summary: List parts with current readings and states
+      parameters:
+        - {name: kind, in: query, schema: {$ref: "#/components/schemas/PartKind"}}
+        - {name: budId, in: query, schema: {type: string}}
+        - {name: buildId, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: Parts
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PartList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/parts/{partId}:
+    parameters:
+      - {$ref: "#/components/parameters/PartId"}
+    get:
+      tags: [Parts]
+      operationId: getPart
+      summary: Get a part
+      responses:
+        "200":
+          description: Part
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Part"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [Parts]
+      operationId: updatePart
+      summary: Rename a part or change its configuration
+      description: Users cannot delete a part; they can only unlink its bud (UI-3.4).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PartUpdate"}
+      responses:
+        "200":
+          description: Updated part
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Part"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /api/v1/parts/{partId}/readings:
+    parameters:
+      - {$ref: "#/components/parameters/PartId"}
+    get:
+      tags: [Parts]
+      operationId: listPartReadings
+      summary: Get reading history for a part
+      description: |
+        History does not make an old reading current.
+        Responses are limited and may be downsampled.
+      parameters:
+        - {name: property, in: query, schema: {type: string}, description: "Reading name, such as moisture"}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: resolution, in: query, schema: {type: string, enum: [raw, minute, hour, day], default: raw}}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+      responses:
+        "200":
+          description: Historical readings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ReadingHistory"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/parts/{partId}/commands:
+    parameters:
+      - {$ref: "#/components/parameters/PartId"}
+    post:
+      tags: [Commands]
+      operationId: createCommand
+      summary: Request an actor change
+      description: |
+        Manual commands pass through the same limits as actions (FR-9, SR-3).
+        A forbidden command is rejected with a reason and is not deferred.
+        Timed-on commands need a duration and an expiry.
+        Retrying a POST can duplicate a request, so send an Idempotency-Key.
+      parameters:
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CommandRequest"}
+      responses:
+        "202":
+          description: Accepted for processing but not necessarily applied
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Command"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "503": {$ref: "#/components/responses/Unavailable"}
+  /api/v1/commands/{commandId}:
+    parameters:
+      - {$ref: "#/components/parameters/CommandId"}
+    get:
+      tags: [Commands]
+      operationId: getCommand
+      summary: Get a command result
+      description: Results are kept for a limited time. Unknown or discarded IDs return 404.
+      responses:
+        "200":
+          description: Command
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Command"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/builds:
+    get:
+      tags: [Builds]
+      operationId: listBuilds
+      summary: List builds
+      parameters:
+        - {name: active, in: query, schema: {type: boolean}}
+      responses:
+        "200":
+          description: Builds
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BuildList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [Builds]
+      operationId: createBuild
+      summary: Create a build, optionally from a blueprint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewBuild"}
+      responses:
+        "201":
+          description: Build created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Build"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /api/v1/builds/{buildId}:
+    parameters:
+      - {$ref: "#/components/parameters/BuildId"}
+    get:
+      tags: [Builds]
+      operationId: getBuild
+      summary: Get a build with its parts, subbuilds, and actions
+      responses:
+        "200":
+          description: Build
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Build"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [Builds]
+      operationId: updateBuild
+      summary: Rename, activate, or deactivate a build
+      description: Deactivating a build puts its actors in their safe state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BuildUpdate"}
+      responses:
+        "200":
+          description: Updated build
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Build"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+    delete:
+      tags: [Builds]
+      operationId: deleteBuild
+      summary: Delete a build
+      description: Its parts remain linked and available.
+      responses:
+        "204": {description: Build deleted}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/builds/{buildId}/summary:
+    parameters:
+      - {$ref: "#/components/parameters/BuildId"}
+    get:
+      tags: [Builds]
+      operationId: getBuildSummary
+      summary: Get a plain-language summary of what the build does
+      description: Supports FR-8.1.
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BuildSummary"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/builds/{buildId}/parts/{partId}:
+    parameters:
+      - {$ref: "#/components/parameters/BuildId"}
+      - {$ref: "#/components/parameters/PartId"}
+    put:
+      tags: [Builds]
+      operationId: addPartToBuild
+      summary: Add a part to a build
+      description: Parts can be reused in any build (FR-1.3).
+      responses:
+        "204": {description: Part is in the build}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [Builds]
+      operationId: removePartFromBuild
+      summary: Remove a part from a build
+      description: The part stays linked and can be reused.
+      responses:
+        "204": {description: Part removed from the build}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /api/v1/builds/{buildId}/subbuilds/{subbuildId}:
+    parameters:
+      - {$ref: "#/components/parameters/BuildId"}
+      - name: subbuildId
+        in: path
+        required: true
+        schema: {type: string}
+    put:
+      tags: [Builds]
+      operationId: addSubbuild
+      summary: Add a subbuild to a compound build
+      description: The hub rejects cycles.
+      responses:
+        "204": {description: Subbuild added}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+    delete:
+      tags: [Builds]
+      operationId: removeSubbuild
+      summary: Remove a subbuild
+      responses:
+        "204": {description: Subbuild removed}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/blueprints:
+    get:
+      tags: [Blueprints]
+      operationId: listBlueprints
+      summary: List blueprints
+      responses:
+        "200":
+          description: Blueprints
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BlueprintList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [Blueprints]
+      operationId: createBlueprint
+      summary: Create a blueprint or save a build as one
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewBlueprint"}
+      responses:
+        "201":
+          description: Blueprint created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Blueprint"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /api/v1/blueprints/{blueprintId}:
+    parameters:
+      - name: blueprintId
+        in: path
+        required: true
+        schema: {type: string}
+    get:
+      tags: [Blueprints]
+      operationId: getBlueprint
+      summary: Get a blueprint
+      responses:
+        "200":
+          description: Blueprint
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Blueprint"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [Blueprints]
+      operationId: deleteBlueprint
+      summary: Delete a blueprint
+      description: Builds made from it keep working.
+      responses:
+        "204": {description: Blueprint deleted}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/builds/{buildId}/actions:
+    parameters:
+      - {$ref: "#/components/parameters/BuildId"}
+    get:
+      tags: [Actions]
+      operationId: listBuildActions
+      summary: List a build's actions
+      responses:
+        "200":
+          description: Actions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ActionList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    post:
+      tags: [Actions]
+      operationId: createAction
+      summary: Create an action
+      description: |
+        The hub validates before saving.
+        Invalid actions are rejected without changing existing actions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ActionDefinition"}
+      responses:
+        "201":
+          description: Action created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Action"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /api/v1/actions/validate:
+    post:
+      tags: [Actions]
+      operationId: validateAction
+      summary: Check an action without saving it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [buildId, action]
+              properties:
+                buildId: {type: string}
+                action: {$ref: "#/components/schemas/ActionDefinition"}
+      responses:
+        "200":
+          description: Validation result (valid or invalid)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ValidationResult"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/actions/{actionId}:
+    parameters:
+      - {$ref: "#/components/parameters/ActionId"}
+    get:
+      tags: [Actions]
+      operationId: getAction
+      summary: Get an action
+      responses:
+        "200":
+          description: Action
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Action"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    put:
+      tags: [Actions]
+      operationId: replaceAction
+      summary: Replace an action definition
+      description: Use If-Match with the action version to avoid overwriting another edit.
+      parameters:
+        - {$ref: "#/components/parameters/IfMatch"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ActionDefinition"}
+      responses:
+        "200":
+          description: Action replaced
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Action"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "412": {$ref: "#/components/responses/PreconditionFailed"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+    delete:
+      tags: [Actions]
+      operationId: deleteAction
+      summary: Delete a compound action
+      description: Simple actions cannot be deleted (UI-4.3).
+      responses:
+        "204": {description: Action deleted}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /api/v1/actions/{actionId}/run:
+    parameters:
+      - {$ref: "#/components/parameters/ActionId"}
+    post:
+      tags: [Actions]
+      operationId: runAction
+      summary: Run an action now
+      description: Treated as a user-command trigger (SWI-4.3). Limits still apply.
+      parameters:
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      responses:
+        "202":
+          description: Run accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ActionRun"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /api/v1/actions/{actionId}/export:
+    parameters:
+      - {$ref: "#/components/parameters/ActionId"}
+    get:
+      tags: [Actions]
+      operationId: exportAction
+      summary: Export an action in the portable format
+      description: The export does not depend on this hub (FR-2.5).
+      responses:
+        "200":
+          description: Portable action file
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PortableAction"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /api/v1/builds/{buildId}/actions/import:
+    parameters:
+      - {$ref: "#/components/parameters/BuildId"}
+    post:
+      tags: [Actions]
+      operationId: importAction
+      summary: Import an action into a build
+      description: |
+        Validates first. An invalid or unsupported file changes nothing (FR-2.6).
+        Use dryRun to preview without saving.
+      parameters:
+        - {name: dryRun, in: query, schema: {type: boolean, default: false}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PortableAction"}
+      responses:
+        "200":
+          description: Dry run result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ValidationResult"}
+        "201":
+          description: Action imported
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Action"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /api/v1/activity:
+    get:
+      tags: [Activity]
+      operationId: listActivity
+      summary: Search the activity log
+      description: |
+        Includes action runs, commands, faults, offline events, and safe-state events.
+        Old entries are purged automatically (PR-3.5).
+      parameters:
+        - {name: buildId, in: query, schema: {type: string}}
+        - {name: partId, in: query, schema: {type: string}}
+        - {name: type, in: query, schema: {$ref: "#/components/schemas/ActivityType"}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+      responses:
+        "200":
+          description: Activity entries
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ActivityPage"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/faults:
+    get:
+      tags: [Activity]
+      operationId: listFaults
+      summary: List active faults
+      responses:
+        "200":
+          description: Faults
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FaultList"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+  /api/v1/audit-log:
+    get:
+      tags: [Activity]
+      operationId: listAuditLog
+      summary: Search security and settings events
+      description: Logins, failed access, pairing, and setting changes. Secrets are never included.
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AuditPage"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /api/v1/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Get hub settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Settings"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Change hub settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SettingsUpdate"}
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Settings"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /api/v1/data/delete:
+    post:
+      tags: [Settings]
+      operationId: deleteUserData
+      summary: Delete stored data
+      description: |
+        Lets users delete their data (SR-2.5).
+        Requires the confirmation phrase. This cannot be undone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scope, confirmation]
+              properties:
+                scope:
+                  type: string
+                  enum: [history, activity, all]
+                confirmation:
+                  type: string
+                  enum: [DELETE]
+      responses:
+        "202":
+          description: Deletion started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [started]}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /api/v1/live:
+    get:
+      tags: [Live]
+      operationId: connectLive
+      summary: Open the live-update WebSocket
+      description: |
+        Upgrade to a WebSocket. Unauthenticated connections are rejected (SR-1.3).
+        Do not put tokens in the URL. Browsers cannot set custom WebSocket headers.
+        Decision: use a short-lived ticket or another browser-friendly method.
+        After connecting, the server sends LiveEvent JSON messages.
+        After a disconnect, reload GET /api/v1/space before trusting updates.
+      responses:
+        "101": {description: Switching protocols}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "429": {$ref: "#/components/responses/TooManyRequests"}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Session token from POST /api/v1/auth/sessions. Never place it in a URL.
+  parameters:
+    UserId: {name: userId, in: path, required: true, schema: {type: string}}
+    BudId: {name: budId, in: path, required: true, schema: {type: string}}
+    PartId: {name: partId, in: path, required: true, schema: {type: string}}
+    BuildId: {name: buildId, in: path, required: true, schema: {type: string}}
+    ActionId: {name: actionId, in: path, required: true, schema: {type: string}}
+    CommandId: {name: commandId, in: path, required: true, schema: {type: string}}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 500, default: 100}
+    Cursor:
+      name: cursor
+      in: query
+      schema: {type: string}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: {type: string, maxLength: 100}
+      description: Reuse the same key when retrying the same request.
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: {type: string}
+      description: Current version tag of the resource.
+  responses:
+    BadRequest:
+      description: Malformed request or invalid field type
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unauthorized:
+      description: Missing, invalid, or expired credentials
+      headers:
+        WWW-Authenticate:
+          schema: {type: string}
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Forbidden:
+      description: Signed in, but lacking permission
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Conflict:
+      description: Conflicts with a limit or current state
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    PreconditionFailed:
+      description: Resource changed since the supplied If-Match version
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unprocessable:
+      description: Valid JSON, but rejected by validation or safety checks
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ValidationError"}
+    TooManyRequests:
+      description: Rate limited or locked out
+      headers:
+        Retry-After:
+          schema: {type: integer}
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unavailable:
+      description: Bud or radio is unavailable. The command is not queued for later.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+    ValidationIssue:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        path: {type: string, description: Location in the submitted JSON}
+        severity: {type: string, enum: [error, warning], default: error}
+    ValidationError:
+      allOf:
+        - {$ref: "#/components/schemas/Error"}
+        - type: object
+          properties:
+            issues:
+              type: array
+              items: {$ref: "#/components/schemas/ValidationIssue"}
+    ValidationResult:
+      type: object
+      required: [valid, issues]
+      properties:
+        valid: {type: boolean}
+        issues:
+          type: array
+          items: {$ref: "#/components/schemas/ValidationIssue"}
+        summary: {type: string, nullable: true, description: Plain-language preview}
+    SystemInfo:
+      type: object
+      required: [hubId, apiVersion, clockTrusted]
+      properties:
+        hubId: {type: string}
+        name: {type: string}
+        apiVersion: {type: string}
+        softwareVersion: {type: string}
+        clockTrusted: {type: boolean}
+        onBattery: {type: boolean, nullable: true}
+    PasswordLogin:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username: {type: string}
+        password: {type: string, format: password}
+    PinLogin:
+      type: object
+      additionalProperties: false
+      required: [pin]
+      properties:
+        pin: {type: string, pattern: '^[0-9]{4}$', writeOnly: true}
+    LocalPinUpdate:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+        pin: {type: string, pattern: '^[0-9]{4}$', writeOnly: true}
+    Permission:
+      type: string
+      enum: [view, control, edit, manage_users, pair, manage_settings]
+    Session:
+      type: object
+      required: [token, expiresAt, user]
+      properties:
+        token: {type: string, readOnly: true}
+        expiresAt: {type: string, format: date-time}
+        user: {$ref: "#/components/schemas/User"}
+    User:
+      type: object
+      required: [id, username, permissions]
+      properties:
+        id: {type: string}
+        username: {type: string}
+        permissions:
+          type: array
+          items: {$ref: "#/components/schemas/Permission"}
+    UserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/User"}
+    NewUser:
+      type: object
+      additionalProperties: false
+      required: [username, password, permissions]
+      properties:
+        username: {type: string, minLength: 1, maxLength: 64}
+        password: {type: string, format: password, writeOnly: true}
+        permissions:
+          type: array
+          items: {$ref: "#/components/schemas/Permission"}
+    UserUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        username: {type: string, minLength: 1, maxLength: 64}
+        password: {type: string, format: password, writeOnly: true}
+        permissions:
+          type: array
+          items: {$ref: "#/components/schemas/Permission"}
+    Pairing:
+      type: object
+      required: [open]
+      properties:
+        open: {type: boolean}
+        expiresAt: {type: string, format: date-time, nullable: true}
+        candidates:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: {type: string}
+              name: {type: string}
+              signalStrength: {type: integer, nullable: true}
+    Bud:
+      type: object
+      required: [id, name, online]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        online: {type: boolean}
+        lastSeenAt: {type: string, format: date-time, nullable: true}
+        batteryPercent: {type: integer, minimum: 0, maximum: 100, nullable: true}
+        firmwareVersion: {type: string, nullable: true}
+        partIds:
+          type: array
+          items: {type: string}
+    BudList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Bud"}
+    BudUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+    PartKind:
+      type: string
+      enum: [sensor, input, actor, generic]
+    PartTypeFunction:
+      type: object
+      required: [name, required]
+      properties:
+        name: {type: string}
+        required: {type: boolean, description: True for a core function}
+    PartType:
+      type: object
+      required: [id, name, kind, functions]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {$ref: "#/components/schemas/PartKind"}
+        functions:
+          type: array
+          items: {$ref: "#/components/schemas/PartTypeFunction"}
+        properties:
+          type: object
+          additionalProperties: true
+    PartTypeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/PartType"}
+    Reading:
+      type: object
+      description: |
+        Known readings need a numeric value and null reason.
+        Unknown readings need a null value and a reason.
+        The hub enforces this relationship.
+      required: [property, value, unit, quality, ageMs, reason]
+      properties:
+        property: {type: string, example: moisture}
+        value: {type: number, nullable: true}
+        unit: {type: string}
+        quality: {type: string, enum: [known, unknown]}
+        ageMs: {type: integer, minimum: 0, nullable: true}
+        reason:
+          type: string
+          nullable: true
+          enum: [stale, offline, out_of_range, never_reported, clock_untrusted, null]
+    ActorState:
+      type: object
+      required: [desired, reported, pending, safeState]
+      properties:
+        desired: {type: string, description: Requested state, such as on or off}
+        reported: {type: string, nullable: true, description: Null when unknown}
+        pending: {type: boolean}
+        safeState: {type: string}
+        maxRunSeconds: {type: integer, minimum: 1, nullable: true}
+    Part:
+      type: object
+      required: [id, name, kind, partTypeId, budId, online]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {$ref: "#/components/schemas/PartKind"}
+        partTypeId: {type: string}
+        hardwareUnit: {type: string, nullable: true}
+        budId: {type: string}
+        online: {type: boolean}
+        buildIds:
+          type: array
+          items: {type: string}
+        readings:
+          type: array
+          items: {$ref: "#/components/schemas/Reading"}
+        actorState:
+          allOf:
+            - {$ref: "#/components/schemas/ActorState"}
+          nullable: true
+        properties:
+          type: object
+          additionalProperties: true
+        lastActivatedAt: {type: string, format: date-time, nullable: true}
+    PartList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Part"}
+    PartUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        configuration:
+          type: object
+          additionalProperties: true
+    ReadingPoint:
+      type: object
+      required: [at, value]
+      properties:
+        at: {type: string, format: date-time}
+        value: {type: number, nullable: true}
+        min: {type: number, nullable: true}
+        max: {type: number, nullable: true}
+    ReadingHistory:
+      type: object
+      required: [partId, property, unit, points]
+      properties:
+        partId: {type: string}
+        property: {type: string}
+        unit: {type: string}
+        points:
+          type: array
+          items: {$ref: "#/components/schemas/ReadingPoint"}
+        nextCursor: {type: string, nullable: true}
+    CommandRequest:
+      oneOf:
+        - {$ref: "#/components/schemas/TimedOnCommand"}
+        - {$ref: "#/components/schemas/StateCommand"}
+    TimedOnCommand:
+      type: object
+      additionalProperties: false
+      required: [state, durationSeconds, expiresAt]
+      properties:
+        state: {type: string, enum: [on]}
+        durationSeconds: {type: integer, minimum: 1}
+        expiresAt: {type: string, format: date-time}
+    StateCommand:
+      type: object
+      additionalProperties: false
+      required: [state, expiresAt]
+      properties:
+        state: {type: string, description: "Allowed states depend on the part type"}
+        level: {type: number, nullable: true}
+        expiresAt: {type: string, format: date-time}
+    Command:
+      type: object
+      required: [id, partId, requestedState, status, reason, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        partId: {type: string}
+        requestedState: {type: string}
+        status: {type: string, enum: [pending, applied, rejected, failed, expired]}
+        reason: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    Build:
+      type: object
+      required: [id, name, active, partIds, subbuildIds, actionIds]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        active: {type: boolean}
+        blueprintId: {type: string, nullable: true}
+        partIds: {type: array, items: {type: string}}
+        subbuildIds: {type: array, items: {type: string}}
+        actionIds: {type: array, items: {type: string}}
+        hideSubbuildActions: {type: boolean, default: false}
+    BuildList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Build"}
+    NewBuild:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        blueprintId: {type: string, nullable: true}
+        partIds: {type: array, items: {type: string}}
+    BuildUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        active: {type: boolean}
+        hideSubbuildActions: {type: boolean}
+    BuildSummary:
+      type: object
+      required: [buildId, sentences]
+      properties:
+        buildId: {type: string}
+        sentences:
+          type: array
+          items: {type: string}
+    Requirement:
+      type: object
+      required: [slot, partTypeId]
+      properties:
+        slot: {type: string}
+        partTypeId: {type: string}
+        minimums:
+          type: object
+          additionalProperties: {type: number}
+    Blueprint:
+      type: object
+      required: [id, name, requirements]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        requirements:
+          type: array
+          items: {$ref: "#/components/schemas/Requirement"}
+        actions:
+          type: array
+          items: {$ref: "#/components/schemas/ActionDefinition"}
+    BlueprintList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Blueprint"}
+    NewBlueprint:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        fromBuildId: {type: string, nullable: true}
+    Trigger:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [schedule, interval, reading, event, user, action]}
+        everySeconds: {type: integer, minimum: 1}
+        at: {type: string, description: Local time such as 07:00}
+        partId: {type: string}
+        property: {type: string}
+        sourceActionId: {type: string}
+    Condition:
+      type: object
+      required: [operator]
+      description: |
+        Evaluates to true, false, or unknown. Unknown is not treated as false.
+        Decision: the rest of this schema is open until the team settles the
+        Automation Model and functional spec differences.
+      properties:
+        operator: {type: string, enum: [below, above, between, equals, is_unknown, and, or, not]}
+        partId: {type: string}
+        property: {type: string}
+        value: {type: number}
+        onUnknown: {type: string, enum: [unknown, true, false], default: unknown}
+        children:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    Step:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [set_actor, run_actor_for, wait, run_action, notify, set_variable]}
+        partId: {type: string}
+        state: {type: string}
+        durationSeconds: {type: integer, minimum: 1}
+        actionId: {type: string}
+        message: {type: string}
+        variable: {type: string}
+        value: {}
+    ActionDefinition:
+      type: object
+      additionalProperties: false
+      required: [name, trigger, steps]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        trigger: {$ref: "#/components/schemas/Trigger"}
+        condition:
+          allOf:
+            - {$ref: "#/components/schemas/Condition"}
+          nullable: true
+        steps:
+          type: array
+          minItems: 1
+          items: {$ref: "#/components/schemas/Step"}
+        enabled: {type: boolean, default: true}
+    Action:
+      allOf:
+        - {$ref: "#/components/schemas/ActionDefinition"}
+        - type: object
+          required: [id, buildId, version, simple]
+          properties:
+            id: {type: string}
+            buildId: {type: string}
+            version: {type: string, description: Value for If-Match}
+            simple: {type: boolean}
+            summary: {type: string, nullable: true}
+    ActionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Action"}
+    ActionRun:
+      type: object
+      required: [id, actionId, status, startedAt]
+      properties:
+        id: {type: string}
+        actionId: {type: string}
+        status: {type: string, enum: [running, completed, failed, skipped, cancelled]}
+        reason: {type: string, nullable: true}
+        startedAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time, nullable: true}
+    PortableAction:
+      type: object
+      required: [format, formatVersion, action]
+      properties:
+        format: {type: string, enum: [mitty-action]}
+        formatVersion: {type: string}
+        requiredPartTypes:
+          type: array
+          items: {type: string}
+        action: {$ref: "#/components/schemas/ActionDefinition"}
+    ActivityType:
+      type: string
+      enum: [action_run, command, fault, offline, online, safe_state, config_change]
+    ActivityEntry:
+      type: object
+      required: [id, at, type, message]
+      properties:
+        id: {type: string}
+        at: {type: string, format: date-time}
+        type: {$ref: "#/components/schemas/ActivityType"}
+        buildId: {type: string, nullable: true}
+        partId: {type: string, nullable: true}
+        actionId: {type: string, nullable: true}
+        message: {type: string}
+        detail: {type: string, nullable: true}
+    ActivityPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ActivityEntry"}
+        nextCursor: {type: string, nullable: true}
+    Fault:
+      type: object
+      required: [id, since, severity, message]
+      properties:
+        id: {type: string}
+        since: {type: string, format: date-time}
+        severity: {type: string, enum: [warning, error]}
+        message: {type: string}
+        partId: {type: string, nullable: true}
+        buildId: {type: string, nullable: true}
+    FaultList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Fault"}
+    AuditEntry:
+      type: object
+      required: [id, at, event, outcome]
+      properties:
+        id: {type: string}
+        at: {type: string, format: date-time}
+        event: {type: string, enum: [login, logout, failed_access, pairing, user_change, setting_change, data_delete]}
+        actor: {type: string, nullable: true}
+        outcome: {type: string, enum: [success, failure]}
+        detail: {type: string, nullable: true}
+    AuditPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/AuditEntry"}
+        nextCursor: {type: string, nullable: true}
+    Settings:
+      type: object
+      required: [hubName, timeZone, localPinEnabled]
+      properties:
+        hubName: {type: string}
+        timeZone: {type: string}
+        localPinEnabled: {type: boolean}
+        historyRetentionDays: {type: integer, minimum: 1}
+    SettingsUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        hubName: {type: string, minLength: 1, maxLength: 64}
+        timeZone: {type: string}
+        historyRetentionDays: {type: integer, minimum: 1}
+    Space:
+      type: object
+      required: [generatedAt, hub, buds, parts, builds, faults]
+      properties:
+        generatedAt: {type: string, format: date-time}
+        hub: {$ref: "#/components/schemas/SystemInfo"}
+        buds:
+          type: array
+          items: {$ref: "#/components/schemas/Bud"}
+        parts:
+          type: array
+          items: {$ref: "#/components/schemas/Part"}
+        builds:
+          type: array
+          items: {$ref: "#/components/schemas/Build"}
+        faults:
+          type: array
+          items: {$ref: "#/components/schemas/Fault"}
+    LiveEvent:
+      type: object
+      description: |
+        WebSocket message. Events are hints to update the dashboard.
+        Missed events are recovered by reloading GET /api/v1/space.
+      required: [type, at, data]
+      properties:
+        type:
+          type: string
+          enum:
+            - part.reading
+            - part.actor_state
+            - part.online
+            - bud.online
+            - command.updated
+            - action.run
+            - build.changed
+            - fault.opened
+            - fault.closed
+            - pairing.candidate
+            - activity.created
+        at: {type: string, format: date-time}
+        data:
+          type: object
+          additionalProperties: true
