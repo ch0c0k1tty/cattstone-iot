@@ -1,7 +1,5 @@
 # Branch Conventions
 
----
-
 ## Feature Branches
 
 All branches besides 'main' and dev branches must follow the following format:
@@ -26,3 +24,9 @@ Pull requests from feature branches must be reviewed by someone other than the a
 
 Changes made to a dev branch cannot be directly merged into 'main'. A feature branch must be created from a dev branch 
 before opening a pull request from the feature branch.
+
+---
+
+## Fork Branches
+
+No pull requests made from a fork of the repository will be approved.
