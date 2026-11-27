@@ -16,7 +16,7 @@ jobs:
           
           if [[ ! "$BRANCH_NAME" =~ $REGEX ]]; then
             echo "Error: Branch name '$BRANCH_NAME' does not follow the required naming convention."
-            echo "Format must match: <layer>/<feature-type>/<name>/<feature>/<sub-feature> (only lowercase letters and numbers)"
+            echo "Format must match: <layer>/<feature-type>/<name>/<feature>/<sub-feature> (only lowercase letters and hyphens)"
             exit 1
           else
             echo "Branch name '$BRANCH_NAME' is valid."
