@@ -1,4 +1,4 @@
-# Branch Conventions
+# Repo Conventions
 
 ## Feature Branches
 
@@ -20,6 +20,21 @@ Pull requests from feature branches must be reviewed by someone other than the a
 
 ---
 
+## Commits
+
+Each commit can only implement one change at a time. In other words, logical changes must be grouped into separate commits.
+
+### Commit Messages
+
+Commit messages must follow the following rules:
+
+* In _imperative tense_, no past tense, present tense, or future tense (i.e. "Did ___", "Doing ___" "Will do ____" are not allowed).
+In other words, commit messages must be written like a command or direction.
+
+* First letter must be _capitalized_.
+
+---
+
 ## Dev Branches
 
 Changes made to a dev branch cannot be directly merged into 'main'. A feature branch must be created from a dev branch 
@@ -27,6 +42,6 @@ before opening a pull request from the feature branch.
 
 ---
 
-## Fork Branches
+## Fork Contributions Prohibited
 
 No pull requests made from a fork of the repository will be approved.
