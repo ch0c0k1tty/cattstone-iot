@@ -12,7 +12,7 @@ jobs:
         run: |
           BRANCH_NAME="${{ github.head_ref }}"
           # Example pattern: allow layer/, feature-type/, name/, feature/, sub-feature/
-          REGEX="(documentation|backend|frontend|firmware)/(bug-fix|feature|hotfix|optimization|task)/[a-z]+/[a-z-]+/[a-z-]+"
+          REGEX="(documentation|backend|frontend|middleware|firmware)/(bug-fix|feature|hotfix|optimization|task)/[a-z]+/[a-z-]+/[a-z-]+"
           
           if [[ ! "$BRANCH_NAME" =~ $REGEX ]]; then
             echo "Error: Branch name '$BRANCH_NAME' does not follow the required naming convention."
