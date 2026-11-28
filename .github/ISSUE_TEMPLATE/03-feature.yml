@@ -1,6 +1,6 @@
 name: Feature
 description: A new or additional feature for the project
-title: "[Feature]: "
+title: "[FEATURE]: "
 labels: ["enhancement"]
 body:
   - type: textarea
