@@ -2,7 +2,7 @@
 
 ## Feature Branches
 
-All branches besides 'main' and dev branches must follow the following format:
+All branches besides ```main``` and dev branches must follow the following format:
 
 ```  <layer>/<feature-type>/<dev-name>/<feature>/<sub-feature>  ```
 
@@ -28,8 +28,9 @@ Each commit can only implement one change at a time. In other words, logical cha
 
 Commit messages must follow the following rules:
 
-* In _imperative tense_, no past tense, present tense, or future tense (i.e. "Did ___", "Doing ___" "Will do ____" are not allowed).
-In other words, commit messages must be written like a command or direction.
+* In _imperative present tense_, no past tense, continuous present tense, or future tense 
+(i.e. "Did ___", "Doing ___" "Will do ____" are examples of invalid commit messages). In other words, commit messages
+must be written like a command or directive.
 
 * First letter must be _capitalized_.
 
