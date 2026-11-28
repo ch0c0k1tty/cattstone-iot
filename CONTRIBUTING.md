@@ -6,7 +6,7 @@ All branches besides 'main' and dev branches must follow the following format:
 
 ```  <layer>/<feature-type>/<dev-name>/<feature>/<sub-feature>  ```
 
-* **layer**: "documentation", "backend", "frontend", "firmware"
+* **layer**: "documentation", "backend", "frontend", "middleware", "firmware"
 
 * **feature-type**: "bug-fix", "feature", "hotfix", "optimization", "task"
 
